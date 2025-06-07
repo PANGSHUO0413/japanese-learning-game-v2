@@ -16,6 +16,10 @@ const modeChallengeButton = document.getElementById('mode-challenge');
 const currentModeDisplay = document.getElementById('current-mode-display'); // UI element to show the current learning mode
 const seedCountDisplay = document.getElementById('seed-count'); // For Garden/Focus Mode
 const gardenPlotsDisplay = document.getElementById('garden-plots'); // For Garden display
+const multipleChoiceArea = document.getElementById('multiple-choice-area');
+const toggleInputModeButton = document.getElementById('toggle-input-mode-button');
+const userInputArea = document.getElementById('user-input-area'); // Already exists, but good to have a const for it if we manipulate it often
+const playAudioButton = document.getElementById('play-audio-button');
 
 // Sample Vocabulary (now loaded from data/vocabulary.js)
 /*
@@ -37,6 +41,8 @@ let wordsAttempted = 0;
 let correctAnswers = 0;
 let currentMode = 'new'; // 'new', 'review', 'challenge'
 let currentQuestionSet = [];
+let isChoiceMode = false; // false for text input, true for multiple choice
+let currentQuestionFormat = 'JtoE'; // 'JtoE' (Japanese to English) or 'EtoJ' (English to Japanese)
 
 // Spaced Repetition Intervals (days)
 // Defines how many days later a word should be reviewed based on its mastery level.
@@ -112,12 +118,168 @@ function shuffleArray(array) {
   return array;
 }
 
+function playAudio(text) {
+  if ('speechSynthesis' in window) {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'ja-JP'; // Set language to Japanese
+    speechSynthesis.speak(utterance);
+  } else {
+    console.warn("Speech synthesis not supported in this browser.");
+    // Optionally, provide fallback or inform user
+    if(characterDisplay) characterDisplay.textContent = "Audio playback not supported.";
+  }
+}
+
+function generateMultipleChoiceOptions(correctAnswerItem, questionFormat = 'JtoE') {
+  const options = [];
+  let correctAnswerText;
+  let optionTypeIsJapanese = false;
+
+  if (questionFormat === 'JtoE') {
+    correctAnswerText = correctAnswerItem.english;
+  } else if (questionFormat === 'EtoJ' || questionFormat === 'FillInTheBlank_JP') {
+    correctAnswerText = correctAnswerItem.japanese;
+    optionTypeIsJapanese = true;
+  } else { // Default or unknown, fallback to JtoE
+    correctAnswerText = correctAnswerItem.english;
+  }
+  options.push({ text: correctAnswerText, correct: true });
+
+  const distractors = [];
+  const vocabularyCopy = [...vocabulary];
+  shuffleArray(vocabularyCopy);
+
+  for (const word of vocabularyCopy) {
+    if (distractors.length >= 3) break;
+
+    const distractorText = optionTypeIsJapanese ? word.japanese : word.english;
+    if (distractorText.toLowerCase() !== correctAnswerText.toLowerCase() &&
+        !options.some(opt => opt.text.toLowerCase() === distractorText.toLowerCase()) &&
+        !distractors.some(d => d.text.toLowerCase() === distractorText.toLowerCase())) {
+      distractors.push({ text: distractorText, correct: false });
+    }
+  }
+
+  while (distractors.length < 3 && vocabularyCopy.length > options.length + distractors.length) {
+      let emergencyDistractor = vocabularyCopy[Math.floor(Math.random() * vocabularyCopy.length)];
+      let emergencyDistractorText = optionTypeIsJapanese ? emergencyDistractor.japanese : emergencyDistractor.english;
+      if (emergencyDistractorText.toLowerCase() !== correctAnswerText.toLowerCase() &&
+          !distractors.some(d => d.text.toLowerCase() === emergencyDistractorText.toLowerCase())) {
+          distractors.push({ text: emergencyDistractorText, correct: false });
+      } else {
+          break;
+      }
+  }
+
+    const defaultDistractors = optionTypeIsJapanese
+        ? ["です", "ます", "でした", "ました"] // Common Japanese endings/particles as distractors
+        : ["is", "am", "are", "was"]; // Common English words
+    let defaultIdx = 0;
+    while (distractors.length < 3) {
+        const distractorText = defaultDistractors[defaultIdx % defaultDistractors.length];
+        defaultIdx++;
+        if (distractorText.toLowerCase() !== correctAnswerText.toLowerCase() &&
+            !options.some(opt => opt.text.toLowerCase() === distractorText.toLowerCase()) &&
+            !distractors.some(d => d.text.toLowerCase() === distractorText.toLowerCase())) {
+            distractors.push({ text: distractorText, correct: false });
+        }
+    }
+
+
+  return shuffleArray([...options, ...distractors]);
+}
+
 function loadQuestion() {
+  // Reset UI elements specific to question formats
+  if (playAudioButton) playAudioButton.classList.add('hidden');
+  characterDisplay.textContent = ''; // Clear previous question text initially
+
+  if (isChoiceMode) {
+    userInputArea.classList.add('hidden');
+    multipleChoiceArea.classList.remove('hidden');
+    if (submitButton) submitButton.style.display = 'none';
+    multipleChoiceArea.innerHTML = '';
+
+    if (currentQuestionSet && currentQuestionIndex < currentQuestionSet.length) {
+      const currentQuestion = currentQuestionSet[currentQuestionIndex];
+      let options;
+
+      if (currentQuestionFormat === 'AudioToE') {
+        if (playAudioButton) {
+          playAudioButton.classList.remove('hidden');
+          playAudioButton.onclick = () => playAudio(currentQuestion.japanese);
+        }
+        characterDisplay.textContent = "Listen and choose the correct meaning";
+        options = generateMultipleChoiceOptions(currentQuestion, 'JtoE');
+      } else if (currentQuestionFormat === 'EtoJ') {
+        characterDisplay.textContent = currentQuestion.english;
+        options = generateMultipleChoiceOptions(currentQuestion, 'EtoJ');
+      } else if (currentQuestionFormat === 'FillInTheBlank_JP') {
+        // For FillInTheBlank_JP, the question prompt might be more complex,
+        // e.g., showing a sentence with a blank. For now, a generic prompt.
+        // The actual blank would be part of characterDisplay.textContent if we had sentence data.
+        // For now, it implies choosing the correct Japanese word for a given context (which is not provided yet)
+        // or simply choosing the correct Japanese word (similar to EtoJ).
+        // Let's assume the question is "What is the Japanese for: [English word/phrase]?"
+        // Or, "Choose the correct Japanese word:" if the English is implied or part of a larger sentence not yet implemented.
+        characterDisplay.textContent = `Choose the correct Japanese for: ${currentQuestion.english}`; // Or more generic
+        options = generateMultipleChoiceOptions(currentQuestion, 'FillInTheBlank_JP');
+      } else { // JtoE (default)
+        characterDisplay.textContent = currentQuestion.japanese;
+        options = generateMultipleChoiceOptions(currentQuestion, 'JtoE');
+      }
+
+      if (options) { // Ensure options were generated
+        options.forEach(option => {
+        const button = document.createElement('button');
+        button.textContent = option.text;
+        button.classList.add('choice-button');
+        button.dataset.correct = option.correct;
+        button.addEventListener('click', () => {
+          // Disable all choice buttons after a selection
+          const choiceButtons = multipleChoiceArea.querySelectorAll('.choice-button');
+          choiceButtons.forEach(btn => btn.disabled = true);
+          checkAnswer(option.text, option.correct); // Pass text for potential logging, and correctness
+        });
+        multipleChoiceArea.appendChild(button);
+      });
+    }
+  } else {
+    userInputArea.classList.remove('hidden');
+    multipleChoiceArea.classList.add('hidden');
+    if (submitButton) submitButton.style.display = '';
+    if (playAudioButton) playAudioButton.classList.add('hidden'); // Ensure audio button is hidden for text input
+    if (answerInput) answerInput.focus();
+  }
+
+  // This block runs for both modes to set up the question context if one exists,
+  // and for text input mode, it sets the character display.
   if (currentQuestionSet && currentQuestionIndex < currentQuestionSet.length) {
-    characterDisplay.textContent = currentQuestionSet[currentQuestionIndex].japanese;
-    answerInput.value = '';
-    answerInput.disabled = false;
-    submitButton.disabled = false;
+    const currentQuestion = currentQuestionSet[currentQuestionIndex];
+
+    if (!isChoiceMode) {
+        if (currentQuestionFormat === 'AudioToE') {
+            if (playAudioButton) {
+                playAudioButton.classList.remove('hidden');
+                playAudioButton.onclick = () => playAudio(currentQuestion.japanese);
+            }
+            characterDisplay.textContent = "Listen and type the English meaning";
+        } else if (currentQuestionFormat === 'EtoJ' || currentQuestionFormat === 'FillInTheBlank_JP') {
+            // For text input, FillInTheBlank_JP behaves like EtoJ
+            characterDisplay.textContent = currentQuestion.english;
+        } else { // JtoE
+            characterDisplay.textContent = currentQuestion.japanese;
+        }
+    }
+
+    if (!isChoiceMode) { // Specific to text input UI setup
+      answerInput.value = '';
+      answerInput.disabled = false;
+    }
+    // Submit button is handled by mode-specific logic above for visibility,
+    // but its disabled state depends on whether a question is loaded.
+    if (submitButton) submitButton.disabled = false;
+
   } else {
     characterDisplay.textContent = "ゲーム終了"; // "Game Over"
     answerInput.disabled = true;
@@ -133,11 +295,32 @@ stopActiveStudyTimer(); // Stop timer when game/set ends
   }
 }
 
-function checkAnswer() {
+// Modified to handle both text input and multiple choice
+function checkAnswer(userAnswerText = null, isCorrectChoice = null) {
   if (currentQuestionSet && currentQuestionIndex < currentQuestionSet.length) {
-    const userAnswer = answerInput.value.trim().toLowerCase();
     const currentQuestion = currentQuestionSet[currentQuestionIndex];
-    const correctAnswer = currentQuestion.english.toLowerCase();
+    let isActuallyCorrect;
+    let userAnswerDisplay = userAnswerText; // For logging or display purposes
+
+    if (isChoiceMode) {
+      if (isCorrectChoice === null) { // Should not happen if called correctly from choice button
+        console.error("checkAnswer called in choice mode without isCorrectChoice value.");
+        return;
+      }
+      isActuallyCorrect = isCorrectChoice;
+      // userAnswerDisplay is already set from the clicked button's text
+    } else {
+      // Text input mode
+      if (!answerInput) return; // Should not happen
+      userAnswerDisplay = answerInput.value.trim();
+      let correctAnswer;
+      if (currentQuestionFormat === 'EtoJ' || currentQuestionFormat === 'FillInTheBlank_JP') {
+        correctAnswer = currentQuestion.japanese.toLowerCase();
+      } else { // JtoE or AudioToE (expects English answer)
+        correctAnswer = currentQuestion.english.toLowerCase();
+      }
+      isActuallyCorrect = userAnswerDisplay.toLowerCase() === correctAnswer;
+    }
 
     // Find the original word in the main vocabulary array to update its stats
     const vocabularyWord = vocabulary.find(v => v.japanese === currentQuestion.japanese);
@@ -155,8 +338,8 @@ function checkAnswer() {
     let reviewIntervalDays; // To store how many days later the next review should be
     const currentDate = new Date(); // For calculating next review date
 
-    // Logic for when the user's answer is correct
-    if (userAnswer === correctAnswer) {
+    // Logic for when the user's answer is correct (now based on isActuallyCorrect)
+    if (isActuallyCorrect) {
       score++;
       correctAnswers++;
       comboCounter++;
@@ -191,7 +374,22 @@ function checkAnswer() {
 
     } else {
       comboCounter = 0;
-      console.log(`Incorrect answer for: ${vocabularyWord.japanese}. Correct was: ${correctAnswer}`);
+      // Log for incorrect answer
+      let correctAnswerForDisplay;
+      let questionAskedForLog;
+
+      if (currentQuestionFormat === 'EtoJ' || currentQuestionFormat === 'FillInTheBlank_JP') {
+        correctAnswerForDisplay = currentQuestion.japanese;
+        questionAskedForLog = currentQuestion.english; // English was shown as the prompt
+      } else if (currentQuestionFormat === 'AudioToE') {
+        correctAnswerForDisplay = currentQuestion.english;
+        questionAskedForLog = `Audio of "${currentQuestion.japanese}"`; // Log that it was an audio question
+      }
+       else { // JtoE
+        correctAnswerForDisplay = currentQuestion.english;
+        questionAskedForLog = currentQuestion.japanese; // Japanese was shown
+      }
+      console.log(`Incorrect answer for: ${questionAskedForLog}. User chose/entered: ${userAnswerDisplay}. Correct was: ${correctAnswerForDisplay}`);
 
       // Update word statistics for an incorrect answer
       vocabularyWord.exposureCount = (vocabularyWord.exposureCount || 0) + 1;
@@ -247,6 +445,19 @@ function provideLearningSuggestions(accuracy) {
   if (wrongAnswers.length > 5) {
     console.log("You have " + wrongAnswers.length + " words to review from this session. Try the 'Review Wrong Answers' feature!");
   }
+}
+
+function toggleInputMode() {
+  isChoiceMode = !isChoiceMode;
+  if (isChoiceMode) {
+    toggleInputModeButton.textContent = "Switch to Input Mode";
+    submitButton.style.display = 'none'; // Hide main submit button
+  } else {
+    toggleInputModeButton.textContent = "Switch to Choice Mode";
+    if (submitButton) submitButton.style.display = '';
+    if (playAudioButton) playAudioButton.classList.add('hidden'); // Hide audio button when switching to text input
+  }
+  loadQuestion(); // Refresh the question display for the new mode
 }
 
 // ① 保留 Learning Modes 的 updateGlobalWordsToReviewCount()
@@ -354,6 +565,15 @@ function startGame() {
   wordsAttempted = 0;
   correctAnswers = 0;
   // wrongAnswers are handled per mode now.
+
+  isChoiceMode = false; // Default to text input mode
+  currentQuestionFormat = 'JtoE'; // Default question format for a new game session
+  userInputArea.classList.remove('hidden');
+  multipleChoiceArea.classList.add('hidden');
+  if(toggleInputModeButton) toggleInputModeButton.textContent = "Switch to Choice Mode";
+  if(submitButton) submitButton.style.display = ''; // Ensure submit button is visible for input mode start
+  if(playAudioButton) playAudioButton.classList.add('hidden'); // Ensure audio button hidden at game start
+
 
   // console.log(`Starting game in mode: ${currentMode}`); // Old log
   console.log(`Starting game in ${currentMode} mode.`); // New specified log
@@ -477,6 +697,12 @@ reviewWrongAnswersButton.addEventListener('click', () => {
 modeNewButton.addEventListener('click', () => setMode('new'));
 modeReviewButton.addEventListener('click', () => setMode('review'));
 modeChallengeButton.addEventListener('click', () => setMode('challenge'));
+if (toggleInputModeButton) { // Ensure button exists before adding listener
+    toggleInputModeButton.addEventListener('click', toggleInputMode);
+}
+
+// --- End of Temporary UI --- (toggleQuestionFormatButton removed)
+
 
 // --- Initial Setup ---
 
