@@ -1,0 +1,58 @@
+/* General body styles */
+body {
+  background-color: #fdf6e3; /* light beige */
+  font-family: "Arial", sans-serif;
+  color: #333333; /* dark gray */
+  margin: 0;
+  padding: 20px; /* Add some padding to the body for smaller screens */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+}
+
+/* Main game area layout */
+.main-game-area {
+  max-width: 800px;
+  width: 90%; /* Add some responsiveness for smaller screens */
+  margin: 20px;
+  padding: 20px;
+  background-color: #ffffff; /* Add a background for the game area */
+  border-radius: 10px; /* Add some rounded corners to the game area */
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1); /* Add a subtle shadow */
+}
+
+/* Button styling */
+button {
+  border-radius: 8px;
+  background-color: #4A90E2; /* blue */
+  color: white;
+  padding: 10px 20px; /* Add some padding */
+  border: none; /* Remove default border */
+  cursor: pointer; /* Add pointer cursor on hover */
+  font-size: 1em; /* Set a base font size */
+}
+
+/* Hover effect for buttons */
+button:hover {
+  background-color: #357ABD; /* darker blue */
+}
+
+/* Responsive adjustments for smaller screens */
+@media (max-width: 600px) {
+  .main-game-area {
+    width: 95%;
+    margin: 10px;
+    padding: 15px;
+  }
+
+  button {
+    padding: 8px 16px;
+    font-size: 0.9em;
+  }
+}
+
+/* General spacing for direct children of main-game-area */
+.main-game-area > * + * {
+  margin-top: 15px; /* Add space between direct children of main-game-area */
+}
