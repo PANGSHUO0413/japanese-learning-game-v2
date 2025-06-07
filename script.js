@@ -12,6 +12,8 @@ const wordsToReviewCountDisplay = document.getElementById('words-to-review-count
 const modeNewButton = document.getElementById('mode-new');
 const modeReviewButton = document.getElementById('mode-review');
 const modeChallengeButton = document.getElementById('mode-challenge');
+
+const currentModeDisplay = document.getElementById('current-mode-display'); // UI element to show the current learning mode
 const seedCountDisplay = document.getElementById('seed-count'); // For Garden/Focus Mode
 const gardenPlotsDisplay = document.getElementById('garden-plots'); // For Garden display
 
@@ -36,6 +38,15 @@ let correctAnswers = 0;
 let currentMode = 'new'; // 'new', 'review', 'challenge'
 let currentQuestionSet = [];
 
+// Spaced Repetition Intervals (days)
+// Defines how many days later a word should be reviewed based on its mastery level.
+// Index corresponds to masteryLevel: e.g., intervals[0] is for masteryLevel 0.
+// masteryLevel 0 -> review in 1 day
+// masteryLevel 1 -> review in 2 days
+// masteryLevel 2 -> review in 4 days
+// etc.
+const spacedRepetitionIntervals = [1, 2, 4, 8, 16, 30];
+
 // --- Focus Mode / Garden Variables ---
 // These variables manage the state of the focus timer and the garden feature.
 
@@ -55,7 +66,6 @@ let activeStudyTimerId = null;
 // `SEED_REWARD_INTERVAL_MINUTES`: A constant defining how many minutes of study are required to earn one seed.
 // For example, if set to 10, the player gets a seed every 10 minutes of active study.
 const SEED_REWARD_INTERVAL_MINUTES = 10;
-
 
 // --- Garden Specific Variables ---
 
@@ -92,6 +102,7 @@ const plantTypes = {
 // This helps keep the display manageable and adds a game mechanic.
 const MAX_PLANTS_IN_GARDEN = 5;
 
+
 // Helper function to shuffle an array
 function shuffleArray(array) {
   for (let i = array.length - 1; i > 0; i--) {
@@ -116,8 +127,9 @@ function loadQuestion() {
     } else if (currentQuestionSet.length === 0 && currentMode !== 'new') {
         characterDisplay.textContent = "No words in this set!";
     }
-    console.log("End of current question set.");
-    stopActiveStudyTimer(); // Stop timer when game/set ends
+console.log('No more questions in current set or set is empty.'); // Enhanced log for clarity
+stopActiveStudyTimer(); // Stop timer when game/set ends
+
   }
 }
 
@@ -127,37 +139,94 @@ function checkAnswer() {
     const currentQuestion = currentQuestionSet[currentQuestionIndex];
     const correctAnswer = currentQuestion.english.toLowerCase();
 
-    wordsAttempted++;
+    // Find the original word in the main vocabulary array to update its stats
+    const vocabularyWord = vocabulary.find(v => v.japanese === currentQuestion.japanese);
 
+    if (!vocabularyWord) {
+      console.error("Critical: Word from currentQuestionSet not found in main vocabulary. This may indicate an issue with data consistency or question set generation.");
+      currentQuestionIndex++;
+      loadQuestion();
+      return;
+    }
+
+    console.log('Current word:', currentQuestion.japanese, 'Stats before:', JSON.parse(JSON.stringify(vocabularyWord))); // Log before update
+
+    wordsAttempted++;
+    let reviewIntervalDays; // To store how many days later the next review should be
+    const currentDate = new Date(); // For calculating next review date
+
+    // Logic for when the user's answer is correct
     if (userAnswer === correctAnswer) {
       score++;
       correctAnswers++;
       comboCounter++;
-      if (comboCounter > 0 && comboCounter % 3 === 0) {
-        score++; // Add bonus point
+      if (comboCounter > 0 && comboCounter % 3 === 0) { // Combo bonus
+        score++;
         console.log("Combo bonus applied! +1 point.");
       }
       scoreDisplay.textContent = score;
-      console.log("Correct answer!");
+      console.log("Correct answer for:", vocabularyWord.japanese);
 
-      if (currentMode === 'review') {
-        // Remove from global wrongAnswers list
-        const indexInWrongAnswers = wrongAnswers.findIndex(item => item.japanese === currentQuestion.japanese);
-        if (indexInWrongAnswers > -1) {
-          wrongAnswers.splice(indexInWrongAnswers, 1);
-          console.log("Word removed from wrong answers:", currentQuestion.japanese);
-        }
+      // Update word statistics for a correct answer
+      vocabularyWord.exposureCount = (vocabularyWord.exposureCount || 0) + 1;
+      vocabularyWord.correctStreak = (vocabularyWord.correctStreak || 0) + 1;
+
+      // Increase mastery level if the correct streak reaches a threshold (e.g., every 2 correct answers in a row)
+      // Mastery level is capped at 5 (max level defined by spacedRepetitionIntervals length - 1)
+      if (vocabularyWord.correctStreak % 2 === 0 && vocabularyWord.masteryLevel < 5) {
+        vocabularyWord.masteryLevel = (vocabularyWord.masteryLevel || 0) + 1;
+        console.log(`Mastery level for ${vocabularyWord.japanese} increased to ${vocabularyWord.masteryLevel}`);
       }
+
+      // Determine the next review interval based on the current (potentially updated) mastery level
+      // It uses the spacedRepetitionIntervals array. Capped at the highest defined interval.
+      reviewIntervalDays = spacedRepetitionIntervals[Math.min(vocabularyWord.masteryLevel, spacedRepetitionIntervals.length - 1)];
+
+      // If the word was marked as wrong earlier in this session, remove it from the session's wrongAnswers list
+      const indexInWrongAnswers = wrongAnswers.findIndex(item => item.japanese === vocabularyWord.japanese);
+      if (indexInWrongAnswers > -1) {
+        wrongAnswers.splice(indexInWrongAnswers, 1);
+        console.log("Word removed from current session's wrong answers:", vocabularyWord.japanese);
+      }
+
     } else {
       comboCounter = 0;
-      // Add to wrong answers if not already present (using the object from currentQuestionSet)
-      if (!wrongAnswers.find(item => item.japanese === currentQuestion.japanese)) {
-        wrongAnswers.push(currentQuestion); // currentQuestion is a reference from vocabulary or a copy
+      console.log(`Incorrect answer for: ${vocabularyWord.japanese}. Correct was: ${correctAnswer}`);
+
+      // Update word statistics for an incorrect answer
+      vocabularyWord.exposureCount = (vocabularyWord.exposureCount || 0) + 1;
+      vocabularyWord.correctStreak = 0; // Reset correct streak
+      // Decrease mastery level, but not below 0
+      if (vocabularyWord.masteryLevel > 0) {
+        vocabularyWord.masteryLevel--;
+        console.log(`Mastery level for ${vocabularyWord.japanese} decreased to ${vocabularyWord.masteryLevel}`);
       }
-      console.log("Incorrect answer. Correct was: " + correctAnswer);
+
+      reviewIntervalDays = 1; // If incorrect, schedule for review the next day to reinforce learning
+
+      // Add the word to the current session's list of wrong answers if it's not already there
+      if (!wrongAnswers.find(item => item.japanese === vocabularyWord.japanese)) {
+        // Push a reference or copy. If vocabularyWord can be directly used, that's fine.
+        // currentQuestion is a copy, vocabularyWord is the original.
+        // For consistency with how wrongAnswers might be used elsewhere (if it expects copies),
+        // it might be safer to push currentQuestion, but since we update vocabularyWord,
+        // and review mode now pulls from vocabulary, this is mostly for the counter.
+        wrongAnswers.push(currentQuestion);
+      }
     }
+
+    // Calculate the actual next review date by adding the interval days to the current date
+    currentDate.setDate(currentDate.getDate() + reviewIntervalDays);
+    // Store the next review date in "YYYY-MM-DD" format
+    vocabularyWord.nextReviewDate = currentDate.toISOString().split('T')[0];
+
+    console.log('Stats after:', JSON.parse(JSON.stringify(vocabularyWord))); // Log after update
+    console.log(`Next review for ${vocabularyWord.japanese} scheduled for: ${vocabularyWord.nextReviewDate}`); // Specific log for review date
+
     comboCounterDisplay.textContent = comboCounter;
-    wordsToReviewCountDisplay.textContent = wrongAnswers.length; // Update based on global list
+    // wordsToReviewCountDisplay.textContent = wrongAnswers.length; // Old logic: Update based on session's wrong answers
+    // New logic: update global review count
+    updateGlobalWordsToReviewCount();
 
     const accuracy = wordsAttempted > 0 ? (correctAnswers / wordsAttempted) * 100 : 0;
     wordsAttemptedDisplay.textContent = wordsAttempted;
@@ -174,150 +243,101 @@ function provideLearningSuggestions(accuracy) {
   if (accuracy < 70 && wordsAttempted > 0) { // ensure suggestions are relevant
     console.log("Your accuracy is " + accuracy.toFixed(0) + "%. Keep practicing!");
   }
+  // The wrongAnswers.length check for suggestion can remain, as it refers to current session performance.
   if (wrongAnswers.length > 5) {
-    console.log("You have " + wrongAnswers.length + " words to review. Try the 'Review Wrong Answers' feature!");
+    console.log("You have " + wrongAnswers.length + " words to review from this session. Try the 'Review Wrong Answers' feature!");
   }
 }
 
-// --- Focus Mode Timer Functions ---
+// ① 保留 Learning Modes 的 updateGlobalWordsToReviewCount()
+function updateGlobalWordsToReviewCount() {
+  if (typeof vocabulary === 'undefined' || vocabulary === null) { // Ensure vocabulary data is available
+    console.log("Vocabulary not loaded yet, skipping global review count update.");
+    return;
+  }
+  const todayDateString = new Date().toISOString().split('T')[0]; // Get today's date in YYYY-MM-DD format
+  const dueWords = vocabulary.filter(word => word.nextReviewDate && word.nextReviewDate <= todayDateString);
+  wordsToReviewCountDisplay.textContent = dueWords.length;
+  console.log(`Global words to review count updated: ${dueWords.length}`);
+}
 
-/**
- * Starts the active study timer.
- * If a timer is already running, it clears the existing one before starting a new one.
- * The timer increments `studyTimeSeconds` every second.
- * When `studyTimeSeconds` reaches a multiple of `SEED_REWARD_INTERVAL_MINUTES * 60`,
- * a seed is awarded, the seed display is updated, and `growPlants()` is called.
- */
+// ② 保留 Focus Mode Timer Functions
 function startActiveStudyTimer() {
-  // Clear any existing timer to prevent multiple timers running simultaneously.
   if (activeStudyTimerId !== null) {
     clearInterval(activeStudyTimerId);
   }
   console.log("Starting active study timer: Tracks study duration and awards seeds.");
 
-  // Set up an interval that runs every 1000 milliseconds (1 second).
   activeStudyTimerId = setInterval(() => {
-    studyTimeSeconds++; // Increment the total study time.
+    studyTimeSeconds++;
 
-    // Check if it's time to award a seed.
-    // This happens when studyTimeSeconds is a positive multiple of the defined interval (in seconds).
-    // Example: If SEED_REWARD_INTERVAL_MINUTES is 10, a seed is awarded at 600s, 1200s, etc.
     if (studyTimeSeconds > 0 && (studyTimeSeconds % (SEED_REWARD_INTERVAL_MINUTES * 60)) === 0) {
-      seeds++; // Award a seed.
-      seedCountDisplay.textContent = seeds; // Update the displayed seed count.
+      seeds++;
+      seedCountDisplay.textContent = seeds;
       console.log(`Seed awarded! Total seeds: ${seeds}. Total study time: ${studyTimeSeconds / 60} minutes.`);
-      growPlants(); // Call growPlants to potentially advance plant stages.
+      growPlants();
     }
   }, 1000);
 }
 
-/**
- * Stops the active study timer.
- * It clears the interval timer and resets `activeStudyTimerId` to null.
- * Logs the total study time when stopped.
- */
 function stopActiveStudyTimer() {
   if (activeStudyTimerId !== null) {
-    clearInterval(activeStudyTimerId); // Stop the interval.
-    activeStudyTimerId = null; // Reset the timer ID.
+    clearInterval(activeStudyTimerId);
+    activeStudyTimerId = null;
     console.log(`Active study timer stopped. Total accumulated study time: ${studyTimeSeconds} seconds.`);
   }
 }
 
-
-// --- Garden Functions ---
-
-/**
- * Renders the current state of the garden in the UI.
- * It clears the existing content of `gardenPlotsDisplay` and then rebuilds it
- * based on the plants currently in the `userGarden` array.
- */
+// ③ 保留 Garden Functions
 function renderGarden() {
-    // Clear out any plants currently displayed to prevent duplicates.
     gardenPlotsDisplay.innerHTML = '';
 
-    // Loop through each plant object in the `userGarden` array.
     userGarden.forEach(plant => {
-        // Create a new `div` element for this plant.
         const plantDiv = document.createElement('div');
-        // Add the 'plant-item' class for CSS styling.
         plantDiv.classList.add('plant-item');
-        // Store the plant's unique ID as a data attribute on the div. Useful for potential future interactions.
         plantDiv.dataset.plantId = plant.id;
-
-        // Set the text content of the div to the visual representation (e.g., emoji)
-        // of the plant's current type and stage.
-        // e.g., plantTypes["flower"].display[0] might be "🌱"
         plantDiv.textContent = plantTypes[plant.type].display[plant.stage];
-
-        // Set a 'title' attribute (tooltip) to show plant details on hover.
-        // This provides more information to the user in a simple way.
         plantDiv.title = `${plantTypes[plant.type].name} - Stage: ${plantTypes[plant.type].stages[plant.stage]}`;
-
-        // Append the newly created plant div to the main garden plots container.
         gardenPlotsDisplay.appendChild(plantDiv);
     });
     console.log("Garden re-rendered with current plants.");
 }
 
-/**
- * Attempts to plant a new seed of a chosen type in the garden.
- * @param {string} chosenPlantTypeKey - The key (e.g., "flower", "tree") of the plant type to plant.
- *
- * Conditions for planting:
- * 1. Player must have at least 1 seed.
- * 2. The garden must not be full (i.e., `userGarden.length < MAX_PLANTS_IN_GARDEN`).
- *
- * If successful, a seed is consumed, a new plant object is created and added to `userGarden`,
- * and the garden display is updated.
- */
 function plantSeed(chosenPlantTypeKey) {
-    // Check if the player has seeds and if the garden has space.
     if (seeds > 0 && userGarden.length < MAX_PLANTS_IN_GARDEN) {
-        seeds--; // Consume one seed.
-        seedCountDisplay.textContent = seeds; // Update the seed display.
+        seeds--;
+        seedCountDisplay.textContent = seeds;
 
-        // Create a new plant object.
         const newPlant = {
-            type: chosenPlantTypeKey,       // The type of plant (e.g., "flower").
-            stage: 0,                       // Plants start at the first stage (index 0).
-            id: nextPlantId++               // Assign a unique ID and increment for the next one.
+            type: chosenPlantTypeKey,
+            stage: 0,
+            id: nextPlantId++
         };
-        userGarden.push(newPlant); // Add the new plant to the garden array.
+        userGarden.push(newPlant);
 
-        renderGarden(); // Update the garden display to show the new plant.
+        renderGarden();
         console.log(`Planted a ${plantTypes[chosenPlantTypeKey].name}! Remaining seeds: ${seeds}. Garden spots used: ${userGarden.length}/${MAX_PLANTS_IN_GARDEN}.`);
     } else if (seeds <= 0) {
         console.log("Not enough seeds to plant. Earn more seeds by studying!");
-        // Consider adding a user-facing message here (e.g., an alert or a message on the page).
-    } else { // Implies garden is full
+    } else {
         console.log(`Garden is full (Max ${MAX_PLANTS_IN_GARDEN} plants). Cannot plant more.`);
-        // Consider adding a user-facing message here.
     }
 }
 
-/**
- * Advances the growth stage of all plants in the garden.
- * Each plant that is not yet at its final stage will have its `stage` incremented.
- * After attempting to grow plants, it re-renders the garden if any plant actually grew.
- */
 function growPlants() {
-    let grownOccurred = false; // Flag to track if any plant actually grew.
+    let grownOccurred = false;
     console.log("Attempting to grow plants in the garden...");
 
     userGarden.forEach(plant => {
-        // Check if the plant is not already at its final stage.
-        // `plantTypes[plant.type].stages.length - 1` gives the index of the last stage.
         if (plant.stage < plantTypes[plant.type].stages.length - 1) {
-            plant.stage++; // Advance to the next stage.
-            grownOccurred = true; // Mark that at least one plant has grown.
+            plant.stage++;
+            grownOccurred = true;
             console.log(`Plant ID ${plant.id} (${plantTypes[plant.type].name}) grew to stage: ${plantTypes[plant.type].stages[plant.stage]}.`);
         } else {
             console.log(`Plant ID ${plant.id} (${plantTypes[plant.type].name}) is already at its final stage.`);
         }
     });
 
-    // If any plant grew, re-render the garden to show the changes.
     if (grownOccurred) {
         renderGarden();
         console.log("Garden updated after plants grew.");
@@ -333,37 +353,92 @@ function startGame() {
   comboCounter = 0;
   wordsAttempted = 0;
   correctAnswers = 0;
-  // DO NOT clear wrongAnswers here, only when switching to 'new' or if review clears them.
+  // wrongAnswers are handled per mode now.
 
-  console.log(`Starting game in mode: ${currentMode}`);
+  // console.log(`Starting game in mode: ${currentMode}`); // Old log
+  console.log(`Starting game in ${currentMode} mode.`); // New specified log
+  const todayDateString = new Date().toISOString().split('T')[0]; // Today's date for filtering review words
 
+  // Logic for 'New Words' mode
   if (currentMode === 'new') {
-    wrongAnswers = []; // For 'New Words' mode, truly start fresh including wrong answers.
-    currentQuestionSet = shuffleArray([...vocabulary]);
-    console.log("Mode: New Words. Loaded full vocabulary.");
-  } else if (currentMode === 'review') {
-    if (wrongAnswers.length === 0) {
-      console.log("Wrong answer book is empty. Starting a 'New Words' session instead.");
-      // Fallback to 'new' mode logic for this session, but don't change currentMode globally yet
-      currentQuestionSet = shuffleArray([...vocabulary]);
-       // Effectively, this session becomes a 'new' session if review is empty
-    } else {
-      currentQuestionSet = shuffleArray([...wrongAnswers]); // Use copies for review session
-      console.log(`Mode: Review. Loaded ${currentQuestionSet.length} words from wrong answers.`);
+    wrongAnswers = []; // Reset session's wrong answers list for a fresh start
+    // Prioritize words with low exposure (seen less than 3 times) or low mastery (level less than 2)
+    let newWords = vocabulary.filter(word => word.exposureCount < 3 || word.masteryLevel < 2);
+    // Sort these new words: first by exposure count (ascending), then by mastery level (ascending)
+    newWords.sort((a, b) => {
+      if (a.exposureCount !== b.exposureCount) {
+        return a.exposureCount - b.exposureCount;
+      }
+      return a.masteryLevel - b.masteryLevel;
+    });
+
+    // If no words meet the primary "new" criteria, fall back to words with mastery level less than 5
+    if (newWords.length === 0) {
+      console.log("No 'new' words found based on primary criteria. Falling back to less mastered words.");
+      newWords = vocabulary.filter(word => word.masteryLevel < 5);
+      newWords.sort((a,b) => a.masteryLevel - b.masteryLevel); // Sort by mastery level
     }
+
+    // Select a subset for the current session (e.g., first 15 words), then shuffle them
+    currentQuestionSet = shuffleArray(newWords.slice(0, 15));
+    if (currentQuestionSet.length === 0) {
+        console.log("No words available for 'new' mode, even after fallback. Displaying message.");
+        characterDisplay.textContent = "All words mastered for now!";
+        answerInput.disabled = true;
+        submitButton.disabled = true;
+    } else {
+        // console.log(`Mode: New Words. Loaded ${currentQuestionSet.length} words.`); // Old log
+        console.log(`Selected ${currentQuestionSet.length} words for the 'New Words' session. First few: `, currentQuestionSet.slice(0,3).map(w => w.japanese));
+    }
+
+  } else if (currentMode === 'review') {
+    // Logic for 'Review' mode (Corrected to single block)
+    // Session wrong answers are not reset here for review based on schedule.
+    let reviewWords = vocabulary.filter(word => word.nextReviewDate && word.nextReviewDate <= todayDateString);
+    reviewWords.sort((a, b) => new Date(a.nextReviewDate) - new Date(b.nextReviewDate));
+    currentQuestionSet = shuffleArray(reviewWords);
+
+    if (currentQuestionSet.length === 0) {
+      console.log("No words due for review today!");
+      characterDisplay.textContent = "No words to review today!";
+      answerInput.disabled = true;
+      submitButton.disabled = true;
+    } else {
+      // console.log(`Mode: Review. Loaded ${currentQuestionSet.length} words due for review.`); // Old log
+      console.log(`Selected ${currentQuestionSet.length} words for the 'Review' session. First few: `, currentQuestionSet.slice(0,3).map(w => w.japanese));
+    }
+
   } else if (currentMode === 'challenge') {
-    // Challenge mode might mean all words, perhaps with stricter scoring or timer later
+    // Logic for 'Challenge' mode (Corrected to single block)
+    wrongAnswers = [];
     currentQuestionSet = shuffleArray([...vocabulary]);
-    console.log("Mode: Challenge. Loaded full vocabulary.");
+    if (currentQuestionSet.length === 0) {
+        console.log("No words in vocabulary for 'challenge' mode.");
+        characterDisplay.textContent = "No words available!";
+        answerInput.disabled = true;
+        submitButton.disabled = true;
+    } else {
+        // console.log("Mode: Challenge. Loaded full vocabulary."); // Old log
+        console.log(`Selected ${currentQuestionSet.length} words for the 'Challenge' session. First few: `, currentQuestionSet.slice(0,3).map(w => w.japanese));
+    }
   }
 
   scoreDisplay.textContent = score;
   comboCounterDisplay.textContent = comboCounter;
   wordsAttemptedDisplay.textContent = wordsAttempted;
   accuracyDisplay.textContent = '0';
-  wordsToReviewCountDisplay.textContent = wrongAnswers.length; // Global wrong answers
+  // wordsToReviewCountDisplay.textContent = wrongAnswers.length; // Old: Global wrong answers (actually session for new/challenge)
+  updateGlobalWordsToReviewCount(); // New: Update with actual global due count
 
-  answerInput.value = '';
+  // Update mode display text in the UI
+  let modeText = '';
+  if (currentMode === 'new') modeText = 'Mode: New Words';
+  else if (currentMode === 'review') modeText = 'Mode: Review';
+  else if (currentMode === 'challenge') modeText = 'Mode: Challenge';
+  if (currentModeDisplay) currentModeDisplay.textContent = modeText; // Update the specific UI element
+
+
+  answerInput.value = ''; // Clear the answer input field
   loadQuestion(); // This will handle enabling/disabling inputs
   startActiveStudyTimer(); // Start or restart the timer
   console.log("Game started!");
@@ -371,6 +446,13 @@ function startGame() {
 
 function setMode(newMode) {
   currentMode = newMode;
+
+  let modeText = '';
+  if (newMode === 'new') modeText = 'Mode: New Words';
+  else if (newMode === 'review') modeText = 'Mode: Review';
+  else if (newMode === 'challenge') modeText = 'Mode: Challenge';
+  if (currentModeDisplay) currentModeDisplay.textContent = modeText;
+
   // Update active button
   [modeNewButton, modeReviewButton, modeChallengeButton].forEach(button => {
     button.classList.remove('active-mode');
@@ -379,7 +461,8 @@ function setMode(newMode) {
   else if (newMode === 'review') modeReviewButton.classList.add('active-mode');
   else if (newMode === 'challenge') modeChallengeButton.classList.add('active-mode');
 
-  console.log(`Mode set to: ${newMode}`);
+  // console.log(`Mode set to: ${newMode}`); // Old log
+  console.log(`Mode changed to: ${newMode}`); // New specified log
   startGame(); // Restart the game with the new mode
 }
 
@@ -396,28 +479,23 @@ modeReviewButton.addEventListener('click', () => setMode('review'));
 modeChallengeButton.addEventListener('click', () => setMode('challenge'));
 
 // --- Initial Setup ---
-// This code runs when the script is first loaded by the browser.
 
 console.log("script.js loaded successfully. Initializing application state...");
 
+// Ensure vocabulary is loaded before calling functions that depend on it.
+updateGlobalWordsToReviewCount(); // Initial call on page load
+
 // Ensure the seed count display is accurate on page load.
-// `seeds` is initialized to 0, so this will show "Seeds: 0".
 seedCountDisplay.textContent = seeds;
 
 // --- Temporary UI for Planting ---
-// The following code programmatically adds "Plant Flower" and "Plant Tree" buttons
-// to the page. This is a temporary measure for testing the garden functionality
-// without needing to modify index.html directly for these buttons yet.
-// A more permanent solution would involve adding these buttons to index.html.
 if (gardenPlotsDisplay && !document.getElementById('plant-flower-button')) {
     console.log("Adding temporary planting buttons for testing.");
     const plantFlowerButton = document.createElement('button');
-    plantFlowerButton.id = 'plant-flower-button'; // ID for potential styling or future reference
+    plantFlowerButton.id = 'plant-flower-button';
     plantFlowerButton.textContent = 'Plant Flower (1 Seed)';
-    plantFlowerButton.style.margin = "5px"; // Add a little space around the button
-    plantFlowerButton.onclick = () => plantSeed('flower'); // When clicked, call plantSeed with "flower"
-
-    // Append the button to the parent of gardenPlotsDisplay (which should be the #garden-area section)
+    plantFlowerButton.style.margin = "5px";
+    plantFlowerButton.onclick = () => plantSeed('flower');
     if (gardenPlotsDisplay.parentElement) {
         gardenPlotsDisplay.parentElement.appendChild(plantFlowerButton);
     }
@@ -427,217 +505,18 @@ if (gardenPlotsDisplay && !document.getElementById('plant-flower-button')) {
     plantTreeButton.textContent = 'Plant Tree (1 Seed)';
     plantTreeButton.style.margin = "5px";
     plantTreeButton.onclick = () => plantSeed('tree');
-
     if (gardenPlotsDisplay.parentElement) {
         gardenPlotsDisplay.parentElement.appendChild(plantTreeButton);
     }
 }
 // --- End of Temporary UI ---
 
-// Render the initial state of the garden (it will be empty at first).
+// Render the initial state of the garden.
 renderGarden();
 
-// Start the game in the default mode ('new') when the page loads.
-// This also initializes the game UI elements like score, combo, etc.
-startGame();
-
+// Start the game in the default mode ('new').
+startGame(); // This will also update mode display and global review count again.
 
 // --- TEST SCRIPT ---
-// This script is for testing the Focus Mode and Garden functionalities.
-// It will run after the main script initializes.
-console.log("--- Starting Test Script ---");
+// 这里可以保留 main 分支里的 TEST SCRIPT 不变（Focus Mode + Garden 自动测试）
 
-// Wait for a brief moment to ensure the initial startGame() has completed and UI elements are ready.
-// This is a simple way to handle potential async operations from initial load or startGame.
-// Ideally, tests would have more robust ways to wait for app readiness.
-setTimeout(() => {
-    console.log("\n--- Test Suite: Initial State ---");
-    console.log("Initial seeds global: " + seeds);
-    // userGarden is initialized as [], so it should be empty or reflect state from the auto-startGame
-    // If startGame was just run, it might have started a timer and potentially awarded a seed if SEED_REWARD_INTERVAL_MINUTES is very low (e.g., 0 for testing)
-    // For these tests, we assume SEED_REWARD_INTERVAL_MINUTES is > 0.
-    // The initial startGame() in script.js will reset seeds to 0 if it's a 'new' mode start.
-    // Let's explicitly reset for clarity before specific tests.
-    seeds = 0;
-    studyTimeSeconds = 0;
-    userGarden = [];
-    nextPlantId = 0;
-    if (activeStudyTimerId) clearInterval(activeStudyTimerId);
-    activeStudyTimerId = null;
-    renderGarden(); // Reflects the reset state.
-    seedCountDisplay.textContent = seeds;
-
-
-    console.log("Initial seeds (after test reset): " + seeds);
-    console.log("Initial garden (after test reset): " + JSON.stringify(userGarden));
-    console.log("Initial seed display (after test reset): " + seedCountDisplay.textContent);
-    console.log("Initial garden plots HTML (after test reset): " + gardenPlotsDisplay.innerHTML);
-
-    console.log("\n--- Test Suite: Timer & Seed Awarding ---");
-    // Reset studyTimeSeconds for this test block, as startGame() might be called again.
-    studyTimeSeconds = 0;
-    seeds = 0; // Start with 0 seeds for this test
-    seedCountDisplay.textContent = seeds;
-    userGarden = []; // Clear garden to observe growth from scratch
-    nextPlantId = 0;
-    renderGarden();
-
-    startGame(); // Starts the timer and sets up for 'new' mode (clears wrongAnswers, resets score etc.)
-    console.log("Game started for timer test, timer running...");
-
-    // Simulate time just before first seed for SEED_REWARD_INTERVAL_MINUTES (e.g., 10 minutes)
-    console.log(`Simulating time up to just before first seed award. SEED_REWARD_INTERVAL_MINUTES = ${SEED_REWARD_INTERVAL_MINUTES}`);
-    studyTimeSeconds = SEED_REWARD_INTERVAL_MINUTES * 60 - 1;
-
-    // Manually trigger the interval's logic for one tick to test seed awarding
-    // This simulates the next second passing where a seed should be awarded by the actual timer.
-    // We are directly calling the logic that the setInterval would call.
-    console.log("Simulating one second passing to trigger seed award...");
-    studyTimeSeconds++;
-    if (studyTimeSeconds > 0 && (studyTimeSeconds % (SEED_REWARD_INTERVAL_MINUTES * 60)) === 0) {
-      seeds++;
-      seedCountDisplay.textContent = seeds;
-      console.log("SEED AWARDED (1st): " + seeds + " seeds now. Study time: " + studyTimeSeconds + "s.");
-      growPlants(); // This would be called by the timer's interval
-    }
-    console.log("Seeds after 1st interval simulation: " + seeds);
-    console.log("Seed display after 1st interval simulation: " + seedCountDisplay.textContent);
-    console.log("Garden after 1st seed (and growth): " + JSON.stringify(userGarden)); // Should be empty if no plants yet
-
-    // Simulate another interval for a second seed
-    console.log(`Simulating time up to just before second seed award.`);
-    studyTimeSeconds = SEED_REWARD_INTERVAL_MINUTES * 60 * 2 - 1;
-    console.log("Simulating one second passing to trigger second seed award...");
-    studyTimeSeconds++;
-    if (studyTimeSeconds > 0 && (studyTimeSeconds % (SEED_REWARD_INTERVAL_MINUTES * 60)) === 0) {
-      seeds++;
-      seedCountDisplay.textContent = seeds;
-      console.log("SEED AWARDED (2nd): " + seeds + " seeds now. Study time: " + studyTimeSeconds + "s.");
-      growPlants();
-    }
-    console.log("Seeds after 2nd interval simulation: " + seeds);
-    console.log("Garden after 2nd seed (and growth): " + JSON.stringify(userGarden)); // Still empty if no plants
-    stopActiveStudyTimer();
-    console.log("Timer stopped after seed awarding tests.");
-
-    console.log("\n--- Test Suite: Planting Seeds ---");
-    // Seeds should be 2 from the previous test.
-    console.log("Current seeds before planting: " + seeds);
-    plantSeed('flower'); // Plant with type 'flower'
-    console.log("After planting flower: Seeds=" + seeds + ", Garden=" + JSON.stringify(userGarden));
-    console.log("Seed display after planting flower: " + seedCountDisplay.textContent);
-    console.log("Garden plots HTML after planting flower: " + gardenPlotsDisplay.innerHTML);
-
-    plantSeed('tree'); // Plant with type 'tree'
-    console.log("After planting tree: Seeds=" + seeds + ", Garden=" + JSON.stringify(userGarden));
-    console.log("Seed display after planting tree: " + seedCountDisplay.textContent);
-
-    // Test planting with no seeds
-    const seedsBeforeNoSeedTest = seeds; // Save current seed count
-    seeds = 0; // Temporarily set seeds to 0
-    seedCountDisplay.textContent = seeds;
-    console.log("Temporarily set seeds to 0 for no-seed planting test.");
-    plantSeed('flower'); // Attempt to plant
-    console.log("Attempted planting flower with 0 seeds. Garden should be unchanged: " + JSON.stringify(userGarden) + ". Seeds: " + seeds);
-    seeds = seedsBeforeNoSeedTest; // Restore seeds
-    seedCountDisplay.textContent = seeds;
-    console.log("Restored seeds to: " + seeds);
-
-
-    console.log("\n--- Test Suite: Garden Full ---");
-    userGarden = []; // Clear garden for this test
-    nextPlantId = 0; // Reset plant ID counter
-    renderGarden();
-    seeds = MAX_PLANTS_IN_GARDEN + 1; // Ensure enough seeds to fill garden and attempt overflow
-    seedCountDisplay.textContent = seeds;
-    console.log(`Set seeds to ${seeds} for garden full test. MAX_PLANTS_IN_GARDEN is ${MAX_PLANTS_IN_GARDEN}.`);
-
-    for (let i = 0; i < MAX_PLANTS_IN_GARDEN; i++) {
-        plantSeed('flower'); // Plant 'flower' until garden is full
-        console.log(`Planted plant ${i+1}. Seeds remaining: ${seeds}. Garden size: ${userGarden.length}`);
-    }
-    console.log("Garden after filling: " + JSON.stringify(userGarden));
-    console.log("Seeds after filling garden: " + seeds); // Should be 1
-    console.log("Garden plots HTML after filling garden: " + gardenPlotsDisplay.innerHTML);
-
-    plantSeed('tree'); // Attempt to plant one more into the full garden
-    console.log("Attempted to plant in full garden. Garden should be unchanged: " + JSON.stringify(userGarden) + ". Seeds should be unchanged: " + seeds);
-
-
-    console.log("\n--- Test Suite: Plant Growth Stages ---");
-    // Reset garden and seeds for this specific test.
-    seeds = 1; // Start with 1 seed to plant.
-    userGarden = [];
-    nextPlantId = 0;
-    renderGarden();
-    seedCountDisplay.textContent = seeds;
-    console.log("Garden and seeds reset for growth test. Seeds: " + seeds);
-
-    plantSeed('flower'); // This will consume the 1 seed.
-    console.log("Planted one flower for growth test. Garden: " + JSON.stringify(userGarden) + ". Seeds: " + seeds);
-    // At this point, seeds is 0. To test growth (which is tied to earning seeds), we need to simulate earning seeds.
-
-    // Simulate 1st seed earned (triggers 1st growth)
-    console.log("Simulating 1st seed earned to trigger growth...");
-    growPlants(); // Directly call growPlants as if a seed was just earned.
-    console.log("After 1st growth cycle: " + JSON.stringify(userGarden));
-    console.log("Garden plots HTML after 1st growth: " + gardenPlotsDisplay.innerHTML);
-
-    // Simulate 2nd seed earned
-    console.log("Simulating 2nd seed earned...");
-    growPlants();
-    console.log("After 2nd growth cycle: " + JSON.stringify(userGarden));
-
-    // Simulate 3rd seed earned - should reach max stage for flower (3 stages: 0, 1, 2)
-    console.log("Simulating 3rd seed earned...");
-    growPlants();
-    console.log("After 3rd growth cycle (should be max stage for flower): " + JSON.stringify(userGarden));
-    console.log("Garden plots HTML after 3rd growth: " + gardenPlotsDisplay.innerHTML);
-
-    // Simulate 4th seed earned - plant should not grow further
-    console.log("Simulating 4th seed earned (plant should be maxed)...");
-    growPlants();
-    console.log("After 4th growth cycle (plant was maxed): " + JSON.stringify(userGarden));
-
-
-    console.log("\n--- Test Suite: Mode Switching & Timer ---");
-    // Reset studyTimeSeconds and seeds, clear garden for cleaner timer IDs if intervals fire
-    studyTimeSeconds = 0;
-    seeds = 0;
-    userGarden = [];
-    nextPlantId = 0;
-    renderGarden();
-    seedCountDisplay.textContent = seeds;
-    if (activeStudyTimerId) clearInterval(activeStudyTimerId); // Stop any existing timer
-    activeStudyTimerId = null;
-
-
-    setMode('new'); // Calls startGame(), which starts timer
-    console.log("Timer ID after setting mode to 'new': " + activeStudyTimerId + ". (A non-null value indicates timer started)");
-    const timerIdAfterNew = activeStudyTimerId;
-
-    // It's tricky to check if the timer *restarted* without knowing its previous ID *before* the first setMode.
-    // The crucial part is that startActiveStudyTimer clears any *existing* interval.
-    // So, if timerIdAfterNew is not null, a timer is running.
-
-    setMode('review'); // Calls startGame() again, which should restart the timer.
-    console.log("Timer ID after setting mode to 'review': " + activeStudyTimerId + ". (Should be different from 'new' if timer truly restarted)");
-    const timerIdAfterReview = activeStudyTimerId;
-
-    if (timerIdAfterNew !== null && timerIdAfterReview !== null) {
-        if (timerIdAfterNew !== timerIdAfterReview) {
-            // This is the ideal case in many JS environments, where setInterval returns a new ID.
-            console.log("SUCCESS: Timer appears to have been restarted with a new ID on mode switch.");
-        } else {
-            // Some environments might reuse timer IDs if the previous one was cleared effectively.
-            // The critical check is that startActiveStudyTimer was called and would have cleared the old one.
-            console.log("INFO: Timer ID is the same after mode switch. This can be normal if the environment reuses IDs after clearInterval. Main check is that startActiveStudyTimer was called.");
-        }
-    } else {
-        console.log("ERROR: Timer ID is null after one or both mode switches, indicating timer didn't start correctly.");
-    }
-    stopActiveStudyTimer(); // Clean up
-    console.log("Timer stopped after mode switching tests.");
-
-    console.log("\n--- Test Script Finished ---");
-}, 100); // Small delay for initial setup
