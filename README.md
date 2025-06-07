@@ -13,6 +13,9 @@ A simple web-based game to help learners practice Japanese vocabulary using spac
 ✅ Customizable question bank  
 ✅ Multiple learning modes (new words / review / challenge mode)  
 ✅ Responsive design (desktop / tablet / mobile)  
+✅ Focus Mode / Personal Garden (earn seeds, plant flowers & trees as motivation)
+✅ Modular vocabulary book support (can import published vocab books)
+
 
 ---
 
