@@ -1,58 +1,241 @@
-/* General body styles */
+/* Global reset and box-sizing */
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
 body {
-  background-color: #fdf6e3; /* light beige */
-  font-family: "Arial", sans-serif;
-  color: #333333; /* dark gray */
-  margin: 0;
-  padding: 20px; /* Add some padding to the body for smaller screens */
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 100vh;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; /* Modern sans-serif font stack */
+    line-height: 1.6;
+    background-color: #f0f2f5; /* Slightly softer background */
+    color: #333;
+    display: flex;
+    flex-direction: column;
+    align-items: center; /* Center content */
+    min-height: 100vh;
 }
 
-/* Main game area layout */
-.main-game-area {
-  max-width: 800px;
-  width: 90%; /* Add some responsiveness for smaller screens */
-  margin: 20px;
-  padding: 20px;
-  background-color: #ffffff; /* Add a background for the game area */
-  border-radius: 10px; /* Add some rounded corners to the game area */
-  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1); /* Add a subtle shadow */
+header {
+    background: #2c3e50; /* Darker, more modern blue */
+    color: #ecf0f1; /* Light grey text */
+    padding: 1.5rem 1rem;
+    text-align: center;
+    width: 100%;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-/* Button styling */
+header h1 {
+    margin: 0;
+    font-size: 1.8rem;
+}
+
+main {
+    display: flex;
+    flex-wrap: wrap; /* Allow sections to wrap */
+    justify-content: center; /* Center sections */
+    gap: 1.5rem; /* Space between sections */
+    padding: 1.5rem;
+    width: 100%;
+    max-width: 1200px; /* Max width for content area */
+}
+
+section {
+    background: #ffffff;
+    padding: 1.5rem;
+    border-radius: 8px; /* Softer border radius */
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24); /* Subtle shadow */
+    margin-bottom: 1rem; /* Retain some bottom margin for consistency */
+    flex-basis: calc(50% - 2rem); /* Default to two columns, adjust as needed */
+    min-width: 280px; /* Minimum width for smaller viewports/wrapping */
+    flex-grow: 1;
+}
+
+/* Specific section styling if needed */
+#game-area {
+    flex-basis: 100%; /* Game area can take full width if others wrap below */
+}
+#instructions, #score-area, #progress-area {
+    /* Adjust flex-basis if you want them side-by-side or stacked differently */
+}
+
+
+#character-display {
+    font-size: clamp(2.5rem, 8vw, 4.5rem); /* Responsive font size */
+    text-align: center;
+    padding: 1rem 0;
+    margin-bottom: 1.5rem;
+    min-height: 60px;
+    color: #34495e; /* Darker text for character */
+}
+
+#user-input-area {
+    display: flex;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+    align-items: stretch; /* Make items same height */
+}
+
+#answer-input {
+    flex-grow: 1;
+    padding: 0.75rem;
+    border: 1px solid #bdc3c7; /* Softer border */
+    border-radius: 4px;
+    font-size: 1rem;
+}
+
+#answer-input:focus {
+    outline: none;
+    border-color: #3498db; /* Highlight on focus */
+    box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
+}
+
 button {
-  border-radius: 8px;
-  background-color: #4A90E2; /* blue */
-  color: white;
-  padding: 10px 20px; /* Add some padding */
-  border: none; /* Remove default border */
-  cursor: pointer; /* Add pointer cursor on hover */
-  font-size: 1em; /* Set a base font size */
+    padding: 0.75rem 1.25rem;
+    font-size: 0.95rem;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s ease, transform 0.1s ease;
+    min-width: 100px; /* Minimum width for all buttons */
+    background-color: #3498db; /* Primary button blue */
 }
 
-/* Hover effect for buttons */
 button:hover {
-  background-color: #357ABD; /* darker blue */
+    background-color: #2980b9; /* Darker blue on hover */
+    transform: translateY(-1px); /* Slight lift */
+}
+button:active {
+    transform: translateY(0px); /* Click effect */
+}
+button:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.3);
 }
 
-/* Responsive adjustments for smaller screens */
-@media (max-width: 600px) {
-  .main-game-area {
-    width: 95%;
-    margin: 10px;
-    padding: 15px;
-  }
 
-  button {
-    padding: 8px 16px;
-    font-size: 0.9em;
-  }
+#submit-button {
+    background-color: #2ecc71; /* Green for submit */
+}
+#submit-button:hover {
+    background-color: #27ae60; /* Darker green */
 }
 
-/* General spacing for direct children of main-game-area */
-.main-game-area > * + * {
-  margin-top: 15px; /* Add space between direct children of main-game-area */
+#start-button, #review-wrong-answers-button {
+    background-color: #e67e22; /* Orange for actions */
+}
+#start-button:hover, #review-wrong-answers-button:hover {
+    background-color: #d35400; /* Darker orange */
+}
+
+.mode-button {
+    background-color: #95a5a6; /* Grey for inactive modes */
+}
+.mode-button:hover {
+    background-color: #7f8c8d;
+}
+
+.mode-button.active-mode {
+    background-color: #3498db; /* Primary blue for active mode */
+    color: white;
+    font-weight: bold;
+    box-shadow: 0 0 8px rgba(52, 152, 219, 0.5);
+    border: 1px solid #2980b9;
+}
+
+#controls {
+    display: flex;
+    flex-wrap: wrap; /* Allow wrapping */
+    justify-content: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+#mode-selection-area {
+    display: flex;
+    flex-wrap: wrap; /* Allow wrapping */
+    justify-content: center;
+    gap: 0.75rem;
+    width: 100%; /* Take full width to manage its items */
+    margin-bottom: 0.75rem; /* Space below mode buttons if they are separate */
+}
+
+
+footer {
+    background: #34495e; /* Consistent dark footer */
+    color: #ecf0f1;
+    text-align: center;
+    padding: 1.5rem 1rem;
+    width: 100%;
+    margin-top: auto; /* Push footer to bottom if content is short */
+}
+
+/* Section headings */
+section h2 {
+    margin-top: 0;
+    margin-bottom: 1rem;
+    font-size: 1.5rem;
+    color: #2c3e50;
+    border-bottom: 2px solid #ecf0f1; /* Subtle separator */
+    padding-bottom: 0.5rem;
+}
+
+/* Progress and Score text */
+#score-area p, #progress-area p {
+    font-size: 1.05rem;
+    margin: 0.6rem 0;
+    color: #555;
+}
+#score-area p span, #progress-area p span {
+    font-weight: bold;
+    color: #2c3e50;
+}
+
+
+/* Media Queries for Responsiveness */
+@media (max-width: 768px) {
+    main {
+        flex-direction: column; /* Stack sections on smaller screens */
+        padding: 1rem;
+        gap: 1rem;
+    }
+
+    section {
+        flex-basis: 100%; /* Each section takes full width */
+        margin-bottom: 1rem;
+    }
+
+    #character-display {
+        font-size: clamp(2rem, 7vw, 3.5rem);
+    }
+
+    #user-input-area {
+        flex-direction: column; /* Stack input and button */
+    }
+
+    #answer-input, button {
+        width: 100%; /* Full width for stacked items */
+    }
+
+    .mode-button {
+        flex-grow: 1; /* Allow mode buttons to share space evenly when wrapped */
+    }
+}
+
+@media (max-width: 480px) {
+    header h1 {
+        font-size: 1.5rem;
+    }
+    #character-display {
+        font-size: clamp(1.8rem, 6vw, 3rem);
+    }
+    button {
+        padding: 0.6rem 1rem;
+        font-size: 0.9rem;
+    }
+    section h2 {
+        font-size: 1.3rem;
+    }
 }
