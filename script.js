@@ -566,7 +566,11 @@ function startGame() {
   correctAnswers = 0;
   // wrongAnswers are handled per mode now.
 
-  isChoiceMode = false; // Default to text input mode
+  if (currentMode === 'new' || currentMode === 'challenge') {
+    isChoiceMode = true;
+} else if (currentMode === 'review') {
+    isChoiceMode = false;
+}
   currentQuestionFormat = 'JtoE'; // Default question format for a new game session
   userInputArea.classList.remove('hidden');
   multipleChoiceArea.classList.add('hidden');
