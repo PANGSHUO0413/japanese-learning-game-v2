@@ -12,7 +12,10 @@ const wordsToReviewCountDisplay = document.getElementById('words-to-review-count
 const modeNewButton = document.getElementById('mode-new');
 const modeReviewButton = document.getElementById('mode-review');
 const modeChallengeButton = document.getElementById('mode-challenge');
+
 const currentModeDisplay = document.getElementById('current-mode-display'); // UI element to show the current learning mode
+const seedCountDisplay = document.getElementById('seed-count'); // For Garden/Focus Mode
+const gardenPlotsDisplay = document.getElementById('garden-plots'); // For Garden display
 
 // Sample Vocabulary (now loaded from data/vocabulary.js)
 /*
@@ -44,6 +47,62 @@ let currentQuestionSet = [];
 // etc.
 const spacedRepetitionIntervals = [1, 2, 4, 8, 16, 30];
 
+// --- Focus Mode / Garden Variables ---
+// These variables manage the state of the focus timer and the garden feature.
+
+// `studyTimeSeconds`: Tracks the total number of seconds the user has been actively studying.
+// This timer starts when a game begins and stops when a game ends.
+let studyTimeSeconds = 0;
+
+// `seeds`: Stores the number of seeds the player has earned.
+// Seeds are awarded for spending time in "focus mode" (i.e., active study).
+let seeds = 0;
+
+// `activeStudyTimerId`: Holds the ID of the JavaScript interval timer.
+// This is used to start and stop the timer that increments `studyTimeSeconds`.
+// It's `null` when no timer is active.
+let activeStudyTimerId = null;
+
+// `SEED_REWARD_INTERVAL_MINUTES`: A constant defining how many minutes of study are required to earn one seed.
+// For example, if set to 10, the player gets a seed every 10 minutes of active study.
+const SEED_REWARD_INTERVAL_MINUTES = 10;
+
+// --- Garden Specific Variables ---
+
+// `userGarden`: An array that holds all the plants currently in the player's garden.
+// Each plant is an object, for example: { type: "flower", stage: 0, id: 0 }
+// - `type`: A string key (e.g., "flower") that refers to an entry in `plantTypes`.
+// - `stage`: An integer representing the current growth stage of the plant (index in `plantTypes[type].stages`).
+// - `id`: A unique number for each plant, useful for managing or identifying individual plants later.
+let userGarden = [];
+
+// `nextPlantId`: A simple counter to ensure each new plant gets a unique ID.
+// It's incremented each time a plant is created.
+let nextPlantId = 0;
+
+// `plantTypes`: An object that defines the different kinds of plants available in the game.
+// Each key (e.g., "flower", "tree") represents a type of plant.
+// - `name`: A user-friendly name for the plant type.
+// - `stages`: An array of strings describing each growth stage (e.g., "Seedling", "Sprout").
+// - `display`: An array of strings (often emojis) used to visually represent the plant at each stage.
+const plantTypes = {
+    flower: {
+        name: "Flower",
+        stages: ["Seedling", "Sprout", "Bloom"],
+        display: ["🌱", "🌷", "🌻"]
+    },
+    tree: {
+        name: "Tree",
+        stages: ["Sapling", "Young Tree", "Mature Tree"],
+        display: ["🌳", "🌲", "🌳"] // Example: Could use different tree emojis for stages
+    }
+};
+
+// `MAX_PLANTS_IN_GARDEN`: A constant to limit how many plants can be in the garden at one time.
+// This helps keep the display manageable and adds a game mechanic.
+const MAX_PLANTS_IN_GARDEN = 5;
+
+
 // Helper function to shuffle an array
 function shuffleArray(array) {
   for (let i = array.length - 1; i > 0; i--) {
@@ -68,8 +127,9 @@ function loadQuestion() {
     } else if (currentQuestionSet.length === 0 && currentMode !== 'new') {
         characterDisplay.textContent = "No words in this set!";
     }
-    // console.log("End of current question set."); // Original log
-    console.log('No more questions in current set or set is empty.'); // Enhanced log for clarity
+console.log('No more questions in current set or set is empty.'); // Enhanced log for clarity
+stopActiveStudyTimer(); // Stop timer when game/set ends
+
   }
 }
 
@@ -189,22 +249,105 @@ function provideLearningSuggestions(accuracy) {
   }
 }
 
-// Function to update the global count of words displayed as "Words to Review"
-// This count reflects all words in the vocabulary that are currently due for review (today or earlier).
+// ① 保留 Learning Modes 的 updateGlobalWordsToReviewCount()
 function updateGlobalWordsToReviewCount() {
   if (typeof vocabulary === 'undefined' || vocabulary === null) { // Ensure vocabulary data is available
     console.log("Vocabulary not loaded yet, skipping global review count update.");
     return;
   }
   const todayDateString = new Date().toISOString().split('T')[0]; // Get today's date in YYYY-MM-DD format
-  // Filter the vocabulary to find words whose nextReviewDate is today or in the past
   const dueWords = vocabulary.filter(word => word.nextReviewDate && word.nextReviewDate <= todayDateString);
-  wordsToReviewCountDisplay.textContent = dueWords.length; // Update the UI element
+  wordsToReviewCountDisplay.textContent = dueWords.length;
   console.log(`Global words to review count updated: ${dueWords.length}`);
 }
 
-// Main function to initialize or restart the game
+// ② 保留 Focus Mode Timer Functions
+function startActiveStudyTimer() {
+  if (activeStudyTimerId !== null) {
+    clearInterval(activeStudyTimerId);
+  }
+  console.log("Starting active study timer: Tracks study duration and awards seeds.");
+
+  activeStudyTimerId = setInterval(() => {
+    studyTimeSeconds++;
+
+    if (studyTimeSeconds > 0 && (studyTimeSeconds % (SEED_REWARD_INTERVAL_MINUTES * 60)) === 0) {
+      seeds++;
+      seedCountDisplay.textContent = seeds;
+      console.log(`Seed awarded! Total seeds: ${seeds}. Total study time: ${studyTimeSeconds / 60} minutes.`);
+      growPlants();
+    }
+  }, 1000);
+}
+
+function stopActiveStudyTimer() {
+  if (activeStudyTimerId !== null) {
+    clearInterval(activeStudyTimerId);
+    activeStudyTimerId = null;
+    console.log(`Active study timer stopped. Total accumulated study time: ${studyTimeSeconds} seconds.`);
+  }
+}
+
+// ③ 保留 Garden Functions
+function renderGarden() {
+    gardenPlotsDisplay.innerHTML = '';
+
+    userGarden.forEach(plant => {
+        const plantDiv = document.createElement('div');
+        plantDiv.classList.add('plant-item');
+        plantDiv.dataset.plantId = plant.id;
+        plantDiv.textContent = plantTypes[plant.type].display[plant.stage];
+        plantDiv.title = `${plantTypes[plant.type].name} - Stage: ${plantTypes[plant.type].stages[plant.stage]}`;
+        gardenPlotsDisplay.appendChild(plantDiv);
+    });
+    console.log("Garden re-rendered with current plants.");
+}
+
+function plantSeed(chosenPlantTypeKey) {
+    if (seeds > 0 && userGarden.length < MAX_PLANTS_IN_GARDEN) {
+        seeds--;
+        seedCountDisplay.textContent = seeds;
+
+        const newPlant = {
+            type: chosenPlantTypeKey,
+            stage: 0,
+            id: nextPlantId++
+        };
+        userGarden.push(newPlant);
+
+        renderGarden();
+        console.log(`Planted a ${plantTypes[chosenPlantTypeKey].name}! Remaining seeds: ${seeds}. Garden spots used: ${userGarden.length}/${MAX_PLANTS_IN_GARDEN}.`);
+    } else if (seeds <= 0) {
+        console.log("Not enough seeds to plant. Earn more seeds by studying!");
+    } else {
+        console.log(`Garden is full (Max ${MAX_PLANTS_IN_GARDEN} plants). Cannot plant more.`);
+    }
+}
+
+function growPlants() {
+    let grownOccurred = false;
+    console.log("Attempting to grow plants in the garden...");
+
+    userGarden.forEach(plant => {
+        if (plant.stage < plantTypes[plant.type].stages.length - 1) {
+            plant.stage++;
+            grownOccurred = true;
+            console.log(`Plant ID ${plant.id} (${plantTypes[plant.type].name}) grew to stage: ${plantTypes[plant.type].stages[plant.stage]}.`);
+        } else {
+            console.log(`Plant ID ${plant.id} (${plantTypes[plant.type].name}) is already at its final stage.`);
+        }
+    });
+
+    if (grownOccurred) {
+        renderGarden();
+        console.log("Garden updated after plants grew.");
+    } else {
+        console.log("No plants were eligible for further growth at this time.");
+    }
+}
+
 function startGame() {
+  seedCountDisplay.textContent = seeds; // Update seed display at game start
   score = 0;
   currentQuestionIndex = 0;
   comboCounter = 0;
@@ -297,6 +440,7 @@ function startGame() {
 
   answerInput.value = ''; // Clear the answer input field
   loadQuestion(); // This will handle enabling/disabling inputs
+  startActiveStudyTimer(); // Start or restart the timer
   console.log("Game started!");
 }
 
@@ -334,10 +478,45 @@ modeNewButton.addEventListener('click', () => setMode('new'));
 modeReviewButton.addEventListener('click', () => setMode('review'));
 modeChallengeButton.addEventListener('click', () => setMode('challenge'));
 
-// Initial setup
-console.log("script.js loaded successfully.");
+// --- Initial Setup ---
+
+console.log("script.js loaded successfully. Initializing application state...");
+
 // Ensure vocabulary is loaded before calling functions that depend on it.
-// vocabulary.js is loaded before script.js in HTML, so it should be available.
 updateGlobalWordsToReviewCount(); // Initial call on page load
-startGame(); // Start game in default mode ('new') on page load
-// The startGame call will also update the mode display and global review count again.
+
+// Ensure the seed count display is accurate on page load.
+seedCountDisplay.textContent = seeds;
+
+// --- Temporary UI for Planting ---
+if (gardenPlotsDisplay && !document.getElementById('plant-flower-button')) {
+    console.log("Adding temporary planting buttons for testing.");
+    const plantFlowerButton = document.createElement('button');
+    plantFlowerButton.id = 'plant-flower-button';
+    plantFlowerButton.textContent = 'Plant Flower (1 Seed)';
+    plantFlowerButton.style.margin = "5px";
+    plantFlowerButton.onclick = () => plantSeed('flower');
+    if (gardenPlotsDisplay.parentElement) {
+        gardenPlotsDisplay.parentElement.appendChild(plantFlowerButton);
+    }
+
+    const plantTreeButton = document.createElement('button');
+    plantTreeButton.id = 'plant-tree-button';
+    plantTreeButton.textContent = 'Plant Tree (1 Seed)';
+    plantTreeButton.style.margin = "5px";
+    plantTreeButton.onclick = () => plantSeed('tree');
+    if (gardenPlotsDisplay.parentElement) {
+        gardenPlotsDisplay.parentElement.appendChild(plantTreeButton);
+    }
+}
+// --- End of Temporary UI ---
+
+// Render the initial state of the garden.
+renderGarden();
+
+// Start the game in the default mode ('new').
+startGame(); // This will also update mode display and global review count again.
+
+// --- TEST SCRIPT ---
+// 这里可以保留 main 分支里的 TEST SCRIPT 不变（Focus Mode + Garden 自动测试）
+
