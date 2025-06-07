@@ -21,7 +21,13 @@
                 <button id="submit-button">Submit</button>
             </div>
             <div id="controls">
+                <div id="mode-selection-area">
+                    <button id="mode-new" class="mode-button active-mode">New Words</button>
+                    <button id="mode-review" class="mode-button">Review Mode</button>
+                    <button id="mode-challenge" class="mode-button">Challenge Mode</button>
+                </div>
                 <button id="start-button">Start Game</button>
+                <button id="review-wrong-answers-button">Review Wrong Answers</button>
             </div>
         </section>
 
@@ -33,6 +39,14 @@
         <section id="score-area">
             <h2>Score</h2>
             <p id="score">0</p>
+            <p>Combo: <span id="combo-counter">0</span></p>
+        </section>
+
+        <section id="progress-area">
+            <h2>Progress</h2>
+            <p>Words Attempted: <span id="words-attempted">0</span></p>
+            <p>Accuracy: <span id="accuracy-display">0</span>%</p>
+            <p>Words to Review: <span id="words-to-review-count">0</span></p>
         </section>
     </main>
 
