@@ -193,6 +193,48 @@ section h2 {
     color: #2c3e50;
 }
 
+/* Garden Section Styles */
+/* Styles for the main container of the garden feature. */
+#garden-area {
+    /* This section inherits general styling from the 'section' tag selector,
+       including padding, margin, box-shadow, etc.
+       Specific overrides for #garden-area can be added here if needed. */
+}
+
+/* Styles for the seed counter display. */
+#seed-count {
+    font-weight: bold; /* Makes the seed number stand out. */
+    color: #2c3e50;    /* Uses a color consistent with other important text elements. */
+}
+
+/* Styles for the container that holds all the plant items. */
+#garden-plots {
+    display: flex;         /* Enables Flexbox layout for its children (plant items). */
+    flex-wrap: wrap;       /* Allows plant items to wrap to the next line if space is insufficient. */
+    gap: 10px;             /* Defines the space between individual plant items. */
+    padding: 10px;         /* Adds some internal spacing within the garden plots container. */
+    border: 1px solid #ddd;/* A light border to visually define the plots area. */
+    border-radius: 4px;    /* Rounds the corners, consistent with other styled elements. */
+    min-height: 100px;     /* Ensures the container has a minimum height even if empty. */
+    background-color: #f9f9f9; /* A slightly different background to distinguish it from the section background. */
+}
+
+/* Styles for individual plant items that will be dynamically added by JavaScript. */
+.plant-item {
+    width: 60px;           /* Defines the fixed width of a plant item. */
+    height: 60px;          /* Defines the fixed height of a plant item. */
+    border: 1px solid #ccc;/* Border for each plant item. */
+    background-color: #e0e0e0; /* Placeholder background color for a plant. */
+    /* margin: 5px;        This is overridden by 'gap' in #garden-plots, but good as a fallback if flex is not supported or 'gap' is removed. */
+    display: flex;         /* Enables Flexbox for centering content within the plant item. */
+    align-items: center;   /* Vertically centers the content (e.g., plant emoji). */
+    justify-content: center;/* Horizontally centers the content. */
+    text-align: center;    /* Ensures text content is centered (though flex usually handles this for single items). */
+    border-radius: 4px;    /* Rounded corners for the plant items. */
+    font-size: 1.5rem;     /* Slightly larger font size for emojis/plant display. Adjusted from 0.8rem for better visibility of emojis. */
+    user-select: none;     /* Prevents text selection of emojis, which can look odd. */
+}
+
 
 /* Media Queries for Responsiveness */
 @media (max-width: 768px) {
